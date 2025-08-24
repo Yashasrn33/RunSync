@@ -1,13 +1,29 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+// Haversine formula to calculate distance between two GPS coordinates in miles
+function calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3959; // Earth's radius in miles
+  const toRadians = (degrees: number) => degrees * (Math.PI / 180);
+  
+  const dLat = toRadians(lat2 - lat1);
+  const dLng = toRadians(lng2 - lng1);
+  
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c; // Distance in miles
+}
+
 // Matching algorithm function
 function calculateMatchScore(userProfile: any, candidateProfile: any): number {
   let score = 0;
   let weights = 0;
 
-  // 1. Pace compatibility (30% weight)
-  const paceWeight = 0.3;
+  // 1. Pace compatibility (50% weight) - increased from 30%
+  const paceWeight = 0.5;
   const userPaceRange = [userProfile.paceMin, userProfile.paceMax];
   const candidatePaceRange = [candidateProfile.paceMin, candidateProfile.paceMax];
   
@@ -24,82 +40,103 @@ function calculateMatchScore(userProfile: any, candidateProfile: any): number {
     const paceScore = Math.min(1, overlapSize / Math.max(0.5, avgRange));
     
     score += paceScore * paceWeight;
+  } else {
+    // Even if pace ranges don't overlap, give a small base score to ensure we show matches
+    const paceDifference = Math.abs(
+      ((userPaceRange[0] + userPaceRange[1]) / 2) - 
+      ((candidatePaceRange[0] + candidatePaceRange[1]) / 2)
+    );
+    // Give a small score based on how close the pace averages are (max 0.2 out of 0.5)
+    const paceScore = Math.max(0, Math.min(0.4, (2 - paceDifference) / 10));
+    score += paceScore * paceWeight;
   }
   weights += paceWeight;
 
-  // 2. Goal compatibility (25% weight)
-  const goalWeight = 0.25;
-  if (userProfile.goal === candidateProfile.goal) {
-    score += 1 * goalWeight;
-  } else {
-    // Partial compatibility for related goals
-    const compatibleGoals = {
-      "FIVE_K": ["TEN_K", "HALF_MARATHON"],
-      "TEN_K": ["FIVE_K", "HALF_MARATHON"],
-      "HALF_MARATHON": ["TEN_K", "MARATHON"],
-      "MARATHON": ["HALF_MARATHON"]
-    };
-    
-    if (compatibleGoals[userProfile.goal]?.includes(candidateProfile.goal)) {
-      score += 0.7 * goalWeight;
-    } else {
-      score += 0.3 * goalWeight; // Some base compatibility
-    }
-  }
-  weights += goalWeight;
-
-  // 3. Schedule compatibility (25% weight)
-  const scheduleWeight = 0.25;
+  // 2. Schedule compatibility (30% weight) - increased from 25%, includes weekends
+  const scheduleWeight = 0.3;
   const userSchedule = userProfile.schedule || {};
   const candidateSchedule = candidateProfile.schedule || {};
   
   const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
   let sharedTimeSlots = 0;
   let totalUserSlots = 0;
+  let totalCandidateSlots = 0;
   
   days.forEach(day => {
     const userSlots = userSchedule[day] || [];
     const candidateSlots = candidateSchedule[day] || [];
     totalUserSlots += userSlots.length;
+    totalCandidateSlots += candidateSlots.length;
     
-    userSlots.forEach(slot => {
+    userSlots.forEach((slot: string) => {
       if (candidateSlots.includes(slot)) {
         sharedTimeSlots++;
       }
     });
   });
   
-  const scheduleScore = totalUserSlots > 0 ? sharedTimeSlots / totalUserSlots : 0;
+  let scheduleScore = 0;
+  if (totalUserSlots > 0 && totalCandidateSlots > 0) {
+    if (sharedTimeSlots > 0) {
+      scheduleScore = sharedTimeSlots / totalUserSlots;
+    } else {
+      // Even if no shared time slots, give a small base score (0.1) to ensure matches are shown
+      scheduleScore = 0.1;
+    }
+  } else {
+    // If one user has no schedule preferences, give medium compatibility score
+    scheduleScore = 0.5;
+  }
+  
   score += scheduleScore * scheduleWeight;
   weights += scheduleWeight;
 
-  // 4. Location proximity (20% weight) - simplified for demo
+  // 3. Location proximity (20% weight) - now uses GPS distance
   const locationWeight = 0.2;
-  // In a real app, you'd calculate actual distance using coordinates
-  // For now, simple string match
-  if (userProfile.location === candidateProfile.location) {
-    score += 1 * locationWeight;
-  } else {
-    // Check if they're in the same city/state
-    const userLocationParts = userProfile.location.toLowerCase().split(',');
-    const candidateLocationParts = candidateProfile.location.toLowerCase().split(',');
+  
+  // Check if both users have GPS coordinates
+  if (userProfile.latitude && userProfile.longitude && 
+      candidateProfile.latitude && candidateProfile.longitude) {
+    
+    const distance = calculateDistance(
+      userProfile.latitude, userProfile.longitude,
+      candidateProfile.latitude, candidateProfile.longitude
+    );
+    
+    // Calculate location score based on distance and user's radius preference
+    const maxAcceptableDistance = Math.max(userProfile.radius, candidateProfile.radius, 10); // Minimum 10 miles
     
     let locationScore = 0;
-    if (userLocationParts.length > 1 && candidateLocationParts.length > 1) {
-      // Check state/region match
-      if (userLocationParts[1]?.trim() === candidateLocationParts[1]?.trim()) {
-        locationScore = 0.6;
-      }
-      // Check city match
-      if (userLocationParts[0]?.trim() === candidateLocationParts[0]?.trim()) {
-        locationScore = 0.9;
+    if (distance <= maxAcceptableDistance) {
+      // Within acceptable radius - score based on how close they are
+      locationScore = Math.max(0.1, 1 - (distance / maxAcceptableDistance));
+    } else {
+      // Outside radius but give partial score - ensure minimum 0.05 to always show matches
+      const extendedRadius = maxAcceptableDistance * 2; // Extended to 2x instead of 1.5x
+      if (distance <= extendedRadius) {
+        locationScore = Math.max(0.05, 0.3 * (1 - (distance - maxAcceptableDistance) / (extendedRadius - maxAcceptableDistance)));
+      } else {
+        // Even very far users get a minimum score to ensure matches are shown
+        locationScore = 0.05;
       }
     }
+    
     score += locationScore * locationWeight;
+  } else {
+    // Fallback to city-based matching if GPS coordinates not available
+    if (userProfile.city && candidateProfile.city) {
+      const cityScore = userProfile.city.toLowerCase() === candidateProfile.city.toLowerCase() ? 0.8 : 0.3;
+      score += cityScore * locationWeight;
+    } else {
+      // If no location data available, give medium score to not exclude matches
+      score += 0.5 * locationWeight;
+    }
   }
   weights += locationWeight;
 
-  return weights > 0 ? score / weights : 0;
+  // Always return at least a small score to ensure matches are shown
+  const finalScore = weights > 0 ? score / weights : 0.1;
+  return Math.max(finalScore, 0.05); // Minimum 5% compatibility to always show top 3
 }
 
 export async function GET(request: Request) {
@@ -137,13 +174,13 @@ export async function GET(request: Request) {
       match.receiverId
     ]);
 
-    // Get all other users with complete preferences (excluding already matched)
+    // Get all other users with complete preferences 
+    // Always find potential matches regardless of existing connections
     const potentialMatches = await prisma.preference.findMany({
       where: {
         AND: [
           { isComplete: true },
-          { userId: { not: currentUser.id } },
-          { id: { notIn: excludedProfileIds } }
+          { userId: { not: currentUser.id } }
         ]
       },
       include: {
@@ -152,14 +189,21 @@ export async function GET(request: Request) {
     });
 
     // Calculate match scores and sort by compatibility
+    // Always show top 3 matches even if scores are low
     const scoredMatches = potentialMatches
       .map(profile => ({
         ...profile,
-        matchScore: calculateMatchScore(currentUser.preferences, profile)
+        matchScore: calculateMatchScore(currentUser.preferences, profile),
+        isAlreadyMatched: excludedProfileIds.includes(profile.id) // Flag existing matches
       }))
-      .filter(profile => profile.matchScore > 0.3) // Only show matches with >30% compatibility
-      .sort((a, b) => b.matchScore - a.matchScore) // Sort by best matches first
-      .slice(0, 10); // Limit to top 10 matches
+      .sort((a, b) => {
+        // Prioritize unmatched users first, but still show matched ones if needed
+        if (a.isAlreadyMatched !== b.isAlreadyMatched) {
+          return a.isAlreadyMatched ? 1 : -1; // Unmatched first
+        }
+        return b.matchScore - a.matchScore; // Then by best match score (highest first)
+      })
+      .slice(0, 3); // Always show exactly top 3 matches regardless of score quality
 
     return NextResponse.json(scoredMatches);
   } catch (error) {

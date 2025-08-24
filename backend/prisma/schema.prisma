@@ -31,7 +31,7 @@ model Preference {
   paceMin     Float    // pace in minutes per mile
   paceMax     Float
   address     String   // Full street address
-  city        String   // City for display/grouping
+  city        String?  // City for display/grouping
   latitude    Float?   // GPS coordinates for precise location
   longitude   Float?
   radius      Int      // radius in miles

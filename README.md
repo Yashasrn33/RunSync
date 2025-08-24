@@ -36,7 +36,7 @@ A web application for matching runners based on pace, location, and schedule pre
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
+   git clone <https://github.com/Yashasrn33/RunSync>
    cd runner-match-app
    ```
 
