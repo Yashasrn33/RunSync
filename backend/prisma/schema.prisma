@@ -1,0 +1,120 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  password         String?   // Hashed password
+  firstName        String?
+  lastName         String?
+  profileImageUrl  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  preferences      Preference?
+  runsHosted       Run[]     @relation("HostRuns")
+  runsJoined       RunParticipant[]
+}
+
+model Preference {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  goal        String
+  instagram   String?
+  strava      String?
+  paceMin     Float    // pace in minutes per mile
+  paceMax     Float
+  location    String
+  radius      Int      // radius in miles
+  schedule    Json     // {"monday": ["AM", "PM"], "tuesday": []}
+  isComplete  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  sentMatches     Match[] @relation("RequesterMatches")
+  receivedMatches Match[] @relation("ReceiverMatches")
+}
+
+model Run {
+  id            String   @id @default(cuid())
+  hostId        String
+  host          User     @relation("HostRuns", fields: [hostId], references: [id])
+  startAt       DateTime
+  lat           Float
+  lng           Float
+  paceTarget    Float?
+  maxPeople     Int      @default(2)
+  createdAt     DateTime @default(now())
+  participants  RunParticipant[]
+}
+
+model RunParticipant {
+  id        String  @id @default(cuid())
+  runId     String
+  userId    String
+  status    RSVP     @default(PENDING)
+  createdAt DateTime @default(now())
+
+  run       Run      @relation(fields: [runId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([runId, userId])
+}
+
+model Match {
+  id          String      @id @default(cuid())
+  requesterId String
+  receiverId  String
+  status      MatchStatus @default(PENDING)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  requester Preference @relation("RequesterMatches", fields: [requesterId], references: [id], onDelete: Cascade)
+  receiver  Preference @relation("ReceiverMatches", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, receiverId])
+}
+
+enum RSVP {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum Day {
+  MON
+  TUE
+  WED
+  THU
+  FRI
+  SAT
+  SUN
+}
+
+enum TimeBlock {
+  MORNING
+  NOON
+  EVENING
+}
+
+enum Goal {
+  GENERAL_FITNESS
+  FIVE_K
+  TEN_K
+  HALF
+  MARATHON
+  TRAIL
+  SOCIAL
+}
+
+enum MatchStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
