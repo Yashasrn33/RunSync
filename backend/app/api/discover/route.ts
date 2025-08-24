@@ -22,8 +22,8 @@ function calculateMatchScore(userProfile: any, candidateProfile: any): number {
   let score = 0;
   let weights = 0;
 
-  // 1. Pace compatibility (50% weight) - increased from 30%
-  const paceWeight = 0.5;
+  // 1. Pace compatibility (30% weight) - reduced to focus more on schedule and location
+  const paceWeight = 0.3;
   const userPaceRange = [userProfile.paceMin, userProfile.paceMax];
   const candidatePaceRange = [candidateProfile.paceMin, candidateProfile.paceMax];
   
@@ -46,14 +46,14 @@ function calculateMatchScore(userProfile: any, candidateProfile: any): number {
       ((userPaceRange[0] + userPaceRange[1]) / 2) - 
       ((candidatePaceRange[0] + candidatePaceRange[1]) / 2)
     );
-    // Give a small score based on how close the pace averages are (max 0.2 out of 0.5)
+    // Give a small score based on how close the pace averages are (max 0.12 out of 0.3)
     const paceScore = Math.max(0, Math.min(0.4, (2 - paceDifference) / 10));
     score += paceScore * paceWeight;
   }
   weights += paceWeight;
 
-  // 2. Schedule compatibility (30% weight) - increased from 25%, includes weekends
-  const scheduleWeight = 0.3;
+  // 2. Schedule compatibility (35% weight) - increased to emphasize when people can actually run together
+  const scheduleWeight = 0.35;
   const userSchedule = userProfile.schedule || {};
   const candidateSchedule = candidateProfile.schedule || {};
   
@@ -91,8 +91,8 @@ function calculateMatchScore(userProfile: any, candidateProfile: any): number {
   score += scheduleScore * scheduleWeight;
   weights += scheduleWeight;
 
-  // 3. Location proximity (20% weight) - now uses GPS distance
-  const locationWeight = 0.2;
+  // 3. Location proximity (35% weight) - increased to emphasize geographic accessibility
+  const locationWeight = 0.35;
   
   // Check if both users have GPS coordinates
   if (userProfile.latitude && userProfile.longitude && 
