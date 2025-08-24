@@ -27,11 +27,13 @@ model Preference {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name        String
   goal        String
-  instagram   String?
-  strava      String?
+  socialUrl   String?  // Single social media/website URL
   paceMin     Float    // pace in minutes per mile
   paceMax     Float
-  location    String
+  address     String   // Full street address
+  city        String   // City for display/grouping
+  latitude    Float?   // GPS coordinates for precise location
+  longitude   Float?
   radius      Int      // radius in miles
   schedule    Json     // {"monday": ["AM", "PM"], "tuesday": []}
   isComplete  Boolean  @default(false)

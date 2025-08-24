@@ -1,10 +1,19 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    // TEMP: Using first user, replace with actual auth later
-    const user = await prisma.user.findFirst({
+    // Get session cookie to identify current user
+    const sessionId = request.headers.get('cookie')?.split(';')
+      .find(c => c.trim().startsWith('session='))
+      ?.split('=')[1];
+
+    if (!sessionId) {
+      return NextResponse.json({ message: "Not authenticated" }, { status: 401 });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: sessionId },
       include: { preferences: true }
     });
     
@@ -38,8 +47,18 @@ export async function POST(request: Request) {
   try {
     const data = await request.json();
     
-    // TEMP: Using first user, replace with actual auth later
-    const user = await prisma.user.findFirst();
+    // Get session cookie to identify current user
+    const sessionId = request.headers.get('cookie')?.split(';')
+      .find(c => c.trim().startsWith('session='))
+      ?.split('=')[1];
+
+    if (!sessionId) {
+      return NextResponse.json({ message: "Not authenticated" }, { status: 401 });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: sessionId }
+    });
     
     if (!user) {
       return NextResponse.json({ message: "User not found" }, { status: 404 });
@@ -49,50 +68,62 @@ export async function POST(request: Request) {
       where: { userId: user.id }
     });
 
+    // Update user's profile image if provided
+    if (data.profileImageUrl !== undefined) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { 
+          profileImageUrl: data.profileImageUrl || null 
+        }
+      });
+    }
+
     let profile;
     if (existingProfile) {
+      // Update existing profile
       profile = await prisma.preference.update({
         where: { userId: user.id },
         data: {
           name: data.name,
           goal: data.goal,
-          instagram: data.instagram,
-          strava: data.strava,
+          socialUrl: data.socialUrl || null,
           paceMin: data.paceMin,
           paceMax: data.paceMax,
-          location: data.location,
+          address: data.address,
+          city: data.city || null,
+          latitude: data.latitude || null,
+          longitude: data.longitude || null,
           radius: data.radius,
           schedule: data.schedule,
-          isComplete: true
+          isComplete: true,
         },
-        include: {
-          user: true
-        }
+        include: { user: true }
       });
     } else {
+      // Create new profile
       profile = await prisma.preference.create({
         data: {
           userId: user.id,
           name: data.name,
           goal: data.goal,
-          instagram: data.instagram,
-          strava: data.strava,
+          socialUrl: data.socialUrl || null,
           paceMin: data.paceMin,
           paceMax: data.paceMax,
-          location: data.location,
+          address: data.address,
+          city: data.city || null,
+          latitude: data.latitude || null,
+          longitude: data.longitude || null,
           radius: data.radius,
           schedule: data.schedule,
-          isComplete: true
+          isComplete: true,
         },
-        include: {
-          user: true
-        }
+        include: { user: true }
       });
     }
 
     return NextResponse.json(profile);
   } catch (error) {
-    console.error("Error saving profile:", error);
-    return NextResponse.json({ message: "Failed to save profile" }, { status: 500 });
+    console.error("Error updating profile:", error);
+    return NextResponse.json({ message: "Failed to update profile" }, { status: 500 });
   }
 }

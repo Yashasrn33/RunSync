@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import React, { useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -17,11 +17,13 @@ type ProfileWithUser = {
   userId: string;
   name: string;
   goal: string;
-  instagram?: string;
-  strava?: string;
+  socialUrl?: string;
   paceMin: number;
   paceMax: number;
-  location: string;
+  address: string;
+  city: string;
+  latitude?: number;
+  longitude?: number;
   radius: number;
   schedule: Record<string, string[]>;
   isComplete: boolean;
@@ -33,11 +35,13 @@ type ProfileWithUser = {
 const insertProfileSchema = z.object({
   name: z.string().min(1, "Name is required"),
   goal: z.string().min(1, "Goal is required"),
-  instagram: z.string().optional(),
-  strava: z.string().optional(),
+  socialUrl: z.string().optional(),
   paceMin: z.number(),
   paceMax: z.number(),
-  location: z.string().min(1, "Location is required"),
+  address: z.string().min(1, "Address is required"),
+  city: z.string().optional(),
+  latitude: z.number().optional(),
+  longitude: z.number().optional(),
   radius: z.number(),
   schedule: z.record(z.array(z.string())),
 });
@@ -48,7 +52,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { PaceRangeSlider } from "@/components/PaceRangeSlider";
 import { ScheduleSelector } from "@/components/ScheduleSelector";
 import { Slider } from "@/components/ui/slider";
@@ -57,6 +61,7 @@ const profileFormSchema = insertProfileSchema.extend({
   paceMin: z.number().min(5).max(15),
   paceMax: z.number().min(5).max(15),
   radius: z.number().min(1).max(50),
+  profileImageUrl: z.string().optional(),
 }).refine(data => data.paceMax >= data.paceMin, {
   message: "Maximum pace must be greater than or equal to minimum pace",
   path: ["paceMax"],
@@ -82,16 +87,22 @@ export default function Profile() {
     retry: false,
   });
 
+  const { data: user } = useQuery<User>({
+    queryKey: ["/api/auth/user"],
+    retry: false,
+  });
+
   const form = useForm<ProfileFormData>({
     resolver: zodResolver(profileFormSchema),
     defaultValues: {
       name: "",
       goal: "",
-      instagram: "",
-      strava: "",
+      socialUrl: "",
+      profileImageUrl: "",
       paceMin: 8,
       paceMax: 10,
-      location: "",
+      address: "",
+      city: "",
       radius: 10,
       schedule: {},
     },
@@ -133,16 +144,31 @@ export default function Profile() {
       form.reset({
         name: profile.name || "",
         goal: profile.goal || "",
-        instagram: profile.instagram || "",
-        strava: profile.strava || "",
+        socialUrl: profile.socialUrl || "",
+        profileImageUrl: profile.user?.profileImageUrl || "",
         paceMin: profile.paceMin || 8,
         paceMax: profile.paceMax || 10,
-        location: profile.location || "",
+        address: profile.address || "",
+        city: profile.city || "",
         radius: profile.radius || 10,
         schedule: (profile.schedule as Record<string, string[]>) || {},
       });
+    } else if (user && user.firstName && user.lastName) {
+      // If no profile exists but user data is available, populate name from user
+      form.reset({
+        name: `${user.firstName} ${user.lastName}`,
+        goal: "",
+        socialUrl: "",
+        profileImageUrl: user.profileImageUrl || "",
+        paceMin: 8,
+        paceMax: 10,
+        address: "",
+        city: "",
+        radius: 10,
+        schedule: {},
+      });
     }
-  }, [profile, form]);
+  }, [profile, user, form]);
 
   const onSubmit = (data: ProfileFormData) => {
     mutation.mutate(data);
@@ -212,6 +238,53 @@ export default function Profile() {
                   </FormItem>
                 )}
               />
+
+              <FormField
+                control={form.control}
+                name="profileImageUrl"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Profile Picture</FormLabel>
+                    <div className="space-y-3">
+                      {/* Image Preview */}
+                      {field.value && field.value.trim() && (
+                        <div className="flex justify-center">
+                          <div className="relative">
+                            <img 
+                              src={field.value} 
+                              alt="Profile preview" 
+                              className="w-24 h-24 rounded-full object-cover border-2 border-gray-200"
+                              onError={(e) => {
+                                // Handle image loading error silently
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => field.onChange("")}
+                              className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 text-white rounded-full text-xs hover:bg-red-600 transition-colors flex items-center justify-center"
+                              title="Remove image"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      
+                      <FormControl>
+                        <Input 
+                          placeholder="Enter image URL (e.g., https://picsum.photos/200)" 
+                          {...field} 
+                          data-testid="input-profile-image"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Enter a URL to your profile picture from any image hosting service.
+                      </FormDescription>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
               
               <FormField
                 control={form.control}
@@ -239,37 +312,23 @@ export default function Profile() {
               />
 
               <div className="space-y-2">
-                <Label className="text-sm font-medium text-secondary">Social Links (Optional)</Label>
                 <FormField
                   control={form.control}
-                  name="instagram"
+                  name="socialUrl"
                   render={({ field }) => (
                     <FormItem>
+                      <FormLabel>Social/Website URL (Optional)</FormLabel>
                       <FormControl>
                         <Input 
-                          placeholder="Instagram profile" 
+                          placeholder="https://www.instagram.com/username or your running blog URL" 
                           {...field} 
                           value={field.value || ""}
-                          data-testid="input-instagram"
+                          data-testid="input-social-url"
                         />
                       </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="strava"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormControl>
-                        <Input 
-                          placeholder="Strava profile" 
-                          {...field} 
-                          value={field.value || ""}
-                          data-testid="input-strava"
-                        />
-                      </FormControl>
+                      <FormDescription>
+                        Share your Instagram, Strava, running blog, or any social profile
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -315,16 +374,16 @@ export default function Profile() {
             <div className="space-y-4">
               <FormField
                 control={form.control}
-                name="location"
+                name="address"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Location</FormLabel>
+                    <FormLabel>Street Address</FormLabel>
                     <div className="flex space-x-2">
                       <FormControl>
                         <Input 
-                          placeholder="Enter city, address, or ZIP code" 
+                          placeholder="Enter full street address (e.g., 123 Main St, Boston, MA 02101)" 
                           {...field} 
-                          data-testid="input-location"
+                          data-testid="input-address"
                         />
                       </FormControl>
                       <Button
@@ -335,22 +394,35 @@ export default function Profile() {
                             navigator.geolocation.getCurrentPosition(
                               async (position) => {
                                 try {
-                                  // Use reverse geocoding to get location name
+                                  // Use reverse geocoding to get full address
                                   const { latitude, longitude } = position.coords;
                                   const response = await fetch(
                                     `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
                                   );
                                   const data = await response.json();
-                                  const location = `${data.city || data.locality}, ${data.principalSubdivision}`;
-                                  field.onChange(location);
+                                  
+                                  // Build full address
+                                  const streetNumber = data.streetNumber || '';
+                                  const streetName = data.streetName || '';
+                                  const city = data.city || data.locality || '';
+                                  const state = data.principalSubdivisionCode || '';
+                                  const postalCode = data.postcode || '';
+                                  
+                                  const fullAddress = `${streetNumber} ${streetName}, ${city}, ${state} ${postalCode}`.trim();
+                                  field.onChange(fullAddress);
+                                  
+                                  // Also update city field if it exists
+                                  const cityField = form.getValues('city');
+                                  form.setValue('city', `${city}, ${state}`);
+                                  
                                   toast({
-                                    title: "Location detected",
-                                    description: `Set to ${location}`,
+                                    title: "Address detected",
+                                    description: `Set to ${fullAddress}`,
                                   });
                                 } catch (error) {
                                   toast({
                                     title: "Error",
-                                    description: "Could not detect location",
+                                    description: "Could not detect address",
                                     variant: "destructive",
                                   });
                                 }
@@ -358,7 +430,7 @@ export default function Profile() {
                               (error) => {
                                 toast({
                                   title: "Location access denied",
-                                  description: "Please enter your location manually",
+                                  description: "Please enter your address manually",
                                   variant: "destructive",
                                 });
                               }
@@ -366,7 +438,7 @@ export default function Profile() {
                           } else {
                             toast({
                               title: "Geolocation not supported",
-                              description: "Please enter your location manually",
+                              description: "Please enter your address manually",
                               variant: "destructive",
                             });
                           }

@@ -78,7 +78,7 @@ export default function Home() {
             onClick={() => setActiveTab("matches")}
             data-testid="nav-matches"
           >
-            <i className="fas fa-heart text-sm"></i>
+            <i className="fas fa-running text-sm"></i>
             <span className="text-xs font-medium">Matches</span>
           </button>
           <button

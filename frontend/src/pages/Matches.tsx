@@ -375,7 +375,7 @@ export default function Matches() {
                   disabled={sendMatchMutation.isPending}
                   className="w-full bg-primary hover:bg-primary/90 text-white"
                 >
-                  <i className="fas fa-heart mr-2"></i>
+                  <i className="fas fa-running mr-2"></i>
                   Send Match Request
                 </Button>
               </CardContent>
